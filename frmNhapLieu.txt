@@ -1,0 +1,156 @@
+'Trong VBA Editor, chọn Insert → UserForm.
+'Nhấn F4, đổi dòng (Name) thành frmNhapLieu (đúng chính tả, phân biệt hoa thường).
+'Nhấn F7 để mở cửa sổ code của form, xóa hết nội dung có sẵn.
+'Dán toàn bộ đoạn sau vào:
+
+Option Explicit
+
+Public SenderText As String
+Public FromValue As Date
+Public ToValue As Date
+Public LangCode As String
+
+Private mCodes As Variant
+Private mFull As Boolean
+Private txtSender As MSForms.TextBox
+Private txtFrom As MSForms.TextBox
+Private txtTo As MSForms.TextBox
+Private cboLang As MSForms.ComboBox
+Private WithEvents btnOK As MSForms.CommandButton
+Private WithEvents btnCancel As MSForms.CommandButton
+
+Private Sub AddLabel(ByVal sName As String, ByVal sCaption As String, _
+                     ByVal L As Single, ByVal T As Single, ByVal W As Single)
+    Dim lbl As MSForms.Label
+    Set lbl = Me.Controls.Add("Forms.Label.1", sName, True)
+    lbl.Caption = sCaption
+    lbl.Left = L: lbl.Top = T: lbl.Width = W: lbl.Height = 14
+End Sub
+
+Private Function AddText(ByVal sName As String, ByVal sValue As String, _
+                         ByVal L As Single, ByVal T As Single, ByVal W As Single) As MSForms.TextBox
+    Dim tb As MSForms.TextBox
+    Set tb = Me.Controls.Add("Forms.TextBox.1", sName, True)
+    tb.Text = sValue
+    tb.Left = L: tb.Top = T: tb.Width = W: tb.Height = 20
+    Set AddText = tb
+End Function
+
+Public Sub Setup(ByVal bFull As Boolean)
+
+    Dim y As Single
+
+    mFull = bFull
+    mCodes = Array("zh-tw", "zh", "en", "vi", "ja", "ko", "de", "fr", "0")
+    Me.Caption = "Tong hop email"
+    Me.Width = 290
+    Me.Tag = ""
+
+    y = 10
+
+    If bFull Then
+        AddLabel "lblSender", "Email nguoi gui (nhieu email cach nhau bang , hoac ;)", 12, y, 255
+        y = y + 16
+        Set txtSender = AddText("txtSender", "uoftest@vpic1.com.vn", 12, y, 255)
+        y = y + 28
+
+        AddLabel "lblFrom", "Tu ngay (dd/mm/yyyy)", 12, y, 120
+        AddLabel "lblTo", "Den ngay (dd/mm/yyyy)", 147, y, 120
+        y = y + 16
+        Set txtFrom = AddText("txtFrom", Format(Date, "dd/mm/yyyy"), 12, y, 120)
+        Set txtTo = AddText("txtTo", Format(Date, "dd/mm/yyyy"), 147, y, 120)
+        y = y + 28
+    End If
+
+    AddLabel "lblLang", "Dich sang ngon ngu", 12, y, 255
+    y = y + 16
+
+    Set cboLang = Me.Controls.Add("Forms.ComboBox.1", "cboLang", True)
+    With cboLang
+        .Left = 12: .Top = y: .Width = 255: .Height = 20
+        .Style = 2
+        .AddItem "Tieng Trung Phon the (zh-tw)"
+        .AddItem "Tieng Trung Gian the (zh)"
+        .AddItem "Tieng Anh (en)"
+        .AddItem "Tieng Viet (vi)"
+        .AddItem "Tieng Nhat (ja)"
+        .AddItem "Tieng Han (ko)"
+        .AddItem "Tieng Duc (de)"
+        .AddItem "Tieng Phap (fr)"
+        .AddItem "Khong dich"
+        .ListIndex = 0
+    End With
+    y = y + 32
+
+    Set btnOK = Me.Controls.Add("Forms.CommandButton.1", "btnOK", True)
+    With btnOK
+        .Caption = "OK"
+        .Left = 95: .Top = y: .Width = 80: .Height = 24
+        .Default = True
+    End With
+
+    Set btnCancel = Me.Controls.Add("Forms.CommandButton.1", "btnCancel", True)
+    With btnCancel
+        .Caption = "Huy"
+        .Left = 187: .Top = y: .Width = 80: .Height = 24
+        .Cancel = True
+    End With
+
+    Me.Height = y + 24 + 40
+
+End Sub
+
+Private Sub btnOK_Click()
+
+    If mFull Then
+
+        If Len(Trim$(txtSender.Text)) = 0 Then
+            MsgBox "Chua nhap email nguoi gui.", vbExclamation
+            txtSender.SetFocus
+            Exit Sub
+        End If
+
+        If Not IsDate(txtFrom.Text) Then
+            MsgBox "Ngay bat dau khong hop le.", vbExclamation
+            txtFrom.SetFocus
+            Exit Sub
+        End If
+
+        If Not IsDate(txtTo.Text) Then
+            MsgBox "Ngay ket thuc khong hop le.", vbExclamation
+            txtTo.SetFocus
+            Exit Sub
+        End If
+
+        If CDate(txtFrom.Text) > CDate(txtTo.Text) Then
+            MsgBox "Ngay bat dau khong duoc lon hon ngay ket thuc.", vbExclamation
+            txtFrom.SetFocus
+            Exit Sub
+        End If
+
+        SenderText = Trim$(txtSender.Text)
+        FromValue = CDate(txtFrom.Text)
+        ToValue = CDate(txtTo.Text)
+
+    End If
+
+    If cboLang.ListIndex < 0 Then cboLang.ListIndex = 0
+    LangCode = CStr(mCodes(cboLang.ListIndex))
+
+    Me.Tag = "OK"
+    Me.Hide
+
+End Sub
+
+Private Sub btnCancel_Click()
+    Me.Tag = ""
+    Me.Hide
+End Sub
+
+Private Sub UserForm_QueryClose(Cancel As Integer, CloseMode As Integer)
+    If CloseMode = vbFormControlMenu Then
+        Cancel = True
+        Me.Tag = ""
+        Me.Hide
+    End If
+End Sub

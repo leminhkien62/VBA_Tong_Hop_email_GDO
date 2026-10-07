@@ -1,0 +1,1031 @@
+Option Explicit
+
+'==========================================================
+' BIEN DUNG CHUNG: NGON NGU DICH (vi, en, zh, zh-tw, ja, ko, de, fr)
+' "0" = khong dich
+'==========================================================
+Private gLangTo As String
+Private gStep As String      ' buoc dang chay, de bao loi chinh xac
+
+'==========================================================
+' HAM DUNG CHUOI TIENG VIET AN TOAN (so = ma Unicode)
+'==========================================================
+Function VN(ParamArray Parts() As Variant) As String
+
+    Dim k As Long
+    Dim sResult As String
+
+    For k = LBound(Parts) To UBound(Parts)
+        If VarType(Parts(k)) = vbString Then
+            sResult = sResult & CStr(Parts(k))
+        Else
+            sResult = sResult & UniChr(CLng(Parts(k)))
+        End If
+    Next k
+
+    VN = sResult
+
+End Function
+
+'----------------------------------------------------------
+' Dung chu Han tu danh sach ma hex, vd: CJK("6642 9593")
+'----------------------------------------------------------
+Function CJK(ByVal HexList As String) As String
+
+    Dim a() As String
+    Dim k As Long
+    Dim s As String
+
+    a = Split(HexList, " ")
+    For k = LBound(a) To UBound(a)
+        If Len(a(k)) > 0 Then s = s & UniChr(HexToLong(a(k)))
+    Next k
+
+    CJK = s
+
+End Function
+
+'----------------------------------------------------------
+' Doi chuoi hex -> Long (khong dung CLng("&H..") de tranh Type mismatch)
+'----------------------------------------------------------
+Function HexToLong(ByVal h As String) As Long
+
+    Dim i As Long
+    Dim v As Long
+    Dim d As Long
+
+    For i = 1 To Len(h)
+        d = InStr("0123456789ABCDEF", UCase$(Mid$(h, i, 1))) - 1
+        If d < 0 Then d = 0
+        v = v * 16 + d
+    Next i
+
+    HexToLong = v
+
+End Function
+
+'----------------------------------------------------------
+' ChrW an toan cho ma > 32767
+'----------------------------------------------------------
+Function UniChr(ByVal code As Long) As String
+
+    If code > 32767 Then code = code - 65536
+    UniChr = ChrW(code)
+
+End Function
+
+'==========================================================
+' CAC NHAN / TIEU DE DUNG CHUNG
+'==========================================================
+Function TieuDeYeuCau() As String
+    TieuDeYeuCau = VN(272, 417, "n Ph", 7843, "n ", 225, "nh / G", 243, "p ", 253)
+End Function
+
+Function NhanLienLac() As String
+    NhanLienLac = VN("Th", 244, "ng tin li", 234, "n l", 7841, "c")
+End Function
+
+'==========================================================
+' HIEN FORM NHAP LIEU (frmNhapLieu): email, ngay, ngon ngu
+' bFull = True : hien du email + tu ngay + den ngay + ngon ngu
+' bFull = False: chi hien ngon ngu dich
+' Tra ve False neu bam Huy
+'==========================================================
+Function HienForm(ByVal bFull As Boolean, ByRef sSender As String, _
+                  ByRef dFrom As Date, ByRef dTo As Date, ByRef sLang As String) As Boolean
+
+    Dim f As Object
+
+    On Error GoTo NoForm
+    Set f = VBA.UserForms.Add("frmNhapLieu")
+    On Error GoTo 0
+
+    f.Setup bFull
+    f.Show vbModal
+
+    If CStr(f.Tag) = "OK" Then
+        If bFull Then
+            sSender = CStr(f.SenderText)
+            dFrom = f.FromValue
+            dTo = f.ToValue
+        End If
+        sLang = CStr(f.LangCode)
+        HienForm = True
+    End If
+
+    Unload f
+    Exit Function
+
+NoForm:
+    MsgBox "Chua co form frmNhapLieu." & vbCrLf & _
+           "Vao File > Import File..., chon frmNhapLieu.frm", vbExclamation
+
+End Function
+
+'==========================================================
+' MACRO 1: QUET INBOX + THU MUC CON, XUAT EXCEL + .MSG
+'==========================================================
+Sub TongHopEmailOutlook()
+
+    Dim olNs As Outlook.NameSpace
+    Dim Inbox As Outlook.MAPIFolder
+
+    Dim xlApp As Object
+    Dim wb As Object
+    Dim ws As Object
+
+    Dim SenderInput As String
+    Dim arrSenders() As String
+    Dim FromDate As Date
+    Dim ToDate As Date
+
+    Dim Row As Long
+    Dim CountMail As Long
+
+    Dim BaseFolder As String
+    Dim MsgFolder As String
+    Dim XlsxPath As String
+
+    ' Form nhap lieu: email, tu ngay, den ngay, ngon ngu dich
+    If Not HienForm(True, SenderInput, FromDate, ToDate, gLangTo) Then Exit Sub
+
+    arrSenders = TachDanhSachEmail(SenderInput)
+
+    On Error GoTo ErrorHandler
+
+    ' Tao thu muc
+    BaseFolder = Environ$("USERPROFILE") & "\Desktop\" & "H " & Format(Now, "yyyy-mm-dd_HH-mm") & "_TongHopEmail"
+    MsgFolder = BaseFolder & "\H Email"
+
+    CreateFolderIfNotExist BaseFolder
+    CreateFolderIfNotExist MsgFolder
+
+    ' Outlook
+    Set olNs = Application.GetNamespace("MAPI")
+    Set Inbox = olNs.GetDefaultFolder(olFolderInbox)
+
+    ' Excel
+    Set xlApp = CreateObject("Excel.Application")
+    xlApp.Visible = True
+
+    Set wb = xlApp.Workbooks.Add
+    Set ws = wb.Worksheets(1)
+    ws.Name = "TongHopEmail"
+
+    KhoiTaoSheet ws
+
+    Row = 3            ' dong 1 = tieu de, dong 2 = header, du lieu tu dong 3
+    CountMail = 0
+
+    XuLyThuMucDeQuy Inbox, arrSenders, FromDate, ToDate, ws, Row, CountMail, MsgFolder
+
+    DinhDangExcel ws, Row - 1
+
+    XlsxPath = BaseFolder & "\H " & Format(Now, "yyyy-mm-dd_HH-mm-ss") & "_TongHopEmail.xlsx"
+    wb.SaveAs XlsxPath
+
+    MsgBox _
+        "Da hoan thanh!" & vbCrLf & vbCrLf & _
+        "So email: " & CountMail & vbCrLf & vbCrLf & _
+        "Excel:" & vbCrLf & XlsxPath & vbCrLf & vbCrLf & _
+        "Email (.msg):" & vbCrLf & MsgFolder, _
+        vbInformation, _
+        "Tong hop email"
+
+    Exit Sub
+
+ErrorHandler:
+
+    MsgBox _
+        "Co loi xay ra:" & vbCrLf & vbCrLf & _
+        Err.Number & " - " & Err.Description & vbCrLf & vbCrLf & _
+        "Buoc: " & gStep, _
+        vbCritical, _
+        "Loi"
+
+End Sub
+
+'==========================================================
+' DE QUY QUET 1 THU MUC + TAT CA THU MUC CON
+'==========================================================
+Sub XuLyThuMucDeQuy( _
+    ByVal Fld As Outlook.MAPIFolder, _
+    ByRef arrSenders() As String, _
+    ByVal FromDate As Date, _
+    ByVal ToDate As Date, _
+    ByVal ws As Object, _
+    ByRef Row As Long, _
+    ByRef CountMail As Long, _
+    ByVal MsgFolder As String)
+
+    Dim Items As Outlook.Items
+    Dim Mail As Outlook.MailItem
+    Dim SubFld As Outlook.MAPIFolder
+    Dim i As Long
+
+    On Error Resume Next
+    Set Items = Fld.Items
+    On Error GoTo 0
+
+    If Items Is Nothing Then Exit Sub
+
+    On Error Resume Next
+    Items.Sort "[ReceivedTime]", True
+    On Error GoTo 0
+
+    For i = 1 To Items.Count
+
+        XuLyMotItem Items(i), arrSenders, FromDate, ToDate, ws, Row, CountMail, MsgFolder
+
+        If i Mod 100 = 0 Then DoEvents
+
+    Next i
+
+    For Each SubFld In Fld.Folders
+        XuLyThuMucDeQuy SubFld, arrSenders, FromDate, ToDate, ws, Row, CountMail, MsgFolder
+    Next SubFld
+
+End Sub
+
+'==========================================================
+' XU LY 1 ITEM: loi o email nao thi ghi vao cot H va chay tiep
+'==========================================================
+Sub XuLyMotItem( _
+    ByVal Obj As Object, _
+    ByRef arrSenders() As String, _
+    ByVal FromDate As Date, _
+    ByVal ToDate As Date, _
+    ByVal ws As Object, _
+    ByRef Row As Long, _
+    ByRef CountMail As Long, _
+    ByVal MsgFolder As String)
+
+    Dim Mail As Outlook.MailItem
+    Dim bMatch As Boolean
+
+    On Error GoTo EH
+
+    gStep = "kiem tra loai item"
+    If TypeName(Obj) <> "MailItem" Then Exit Sub
+    Set Mail = Obj
+
+    gStep = "doc ReceivedTime"
+    If Mail.ReceivedTime < FromDate Then Exit Sub
+    If Mail.ReceivedTime >= DateAdd("d", 1, ToDate) Then Exit Sub
+
+    gStep = "kiem tra nguoi gui"
+    If Not CoTrongDanhSach(GetSenderEmail(Mail), arrSenders) Then Exit Sub
+
+    gStep = "kiem tra tieu de"
+    If Not CoTieuDeHopLe(CStr(Mail.Subject)) Then Exit Sub
+
+    bMatch = True
+    CountMail = CountMail + 1
+
+    ProcessMail Mail, ws, Row, MsgFolder
+
+    Row = Row + 1
+    Exit Sub
+
+EH:
+    If bMatch Then
+        Dim sErr As String
+        sErr = "Loi [" & gStep & "]: " & Err.Number & " - " & Err.Description
+        On Error Resume Next
+        ws.Cells(Row, 8).Value = sErr
+        Row = Row + 1
+    End If
+
+End Sub
+
+'==========================================================
+' MACRO 2: TONG HOP EXCEL TU CAC FILE .MSG DA TAI SAN
+'==========================================================
+Sub TongHopExcelTuFileMsg()
+
+    Dim olNs As Outlook.NameSpace
+    Dim Mail As Outlook.MailItem
+
+    Dim xlApp As Object
+    Dim wb As Object
+    Dim ws As Object
+
+    Dim FSO As Object
+    Dim FolderObj As Object
+    Dim FileItem As Object
+
+    Dim FolderPath As String
+    Dim BaseFolder As String
+    Dim XlsxPath As String
+
+    Dim Row As Long
+    Dim CountMail As Long
+
+    FolderPath = InputBox( _
+        "Nhap duong dan thu muc chua cac file email (.msg) da tai:", _
+        "Chon thu muc", _
+        Environ$("USERPROFILE") & "\Desktop\TongHopEmail\Email")
+
+    If Trim(FolderPath) = "" Then Exit Sub
+
+    If Right$(FolderPath, 1) = "\" Then
+        FolderPath = Left$(FolderPath, Len(FolderPath) - 1)
+    End If
+
+    Set FSO = CreateObject("Scripting.FileSystemObject")
+
+    If Not FSO.FolderExists(FolderPath) Then
+        MsgBox "Khong tim thay thu muc nay.", vbExclamation
+        Exit Sub
+    End If
+
+    Dim sDummy As String
+    Dim dDummy1 As Date
+    Dim dDummy2 As Date
+
+    If Not HienForm(False, sDummy, dDummy1, dDummy2, gLangTo) Then Exit Sub
+
+    Set FolderObj = FSO.GetFolder(FolderPath)
+    Set olNs = Application.GetNamespace("MAPI")
+
+    Set xlApp = CreateObject("Excel.Application")
+    xlApp.Visible = True
+
+    Set wb = xlApp.Workbooks.Add
+    Set ws = wb.Worksheets(1)
+    ws.Name = "TongHopEmail"
+
+    KhoiTaoSheet ws
+
+    Row = 3
+    CountMail = 0
+
+    For Each FileItem In FolderObj.Files
+
+        If LCase$(FSO.GetExtensionName(FileItem.Path)) = "msg" Then
+
+            On Error Resume Next
+            Set Mail = Nothing
+            Set Mail = olNs.OpenSharedItem(FileItem.Path)
+            On Error GoTo 0
+
+            If Not Mail Is Nothing Then
+
+                If CoTieuDeHopLe(Mail.Subject) Then
+
+                    CountMail = CountMail + 1
+
+                    GhiDongEmail Mail, ws, Row
+
+                    If Mail.Attachments.Count > 0 Then
+                        ws.Hyperlinks.Add _
+                            Anchor:=ws.Cells(Row, 7), _
+                            Address:=FileItem.Path, _
+                            TextToDisplay:=VN("M", 7903, " email")
+                    End If
+
+                    Row = Row + 1
+
+                End If
+
+                On Error Resume Next
+                Mail.Close olDiscard
+                On Error GoTo 0
+                Set Mail = Nothing
+
+            End If
+
+        End If
+
+    Next FileItem
+
+    DinhDangExcel ws, Row - 1
+
+    BaseFolder = FSO.GetParentFolderName(FolderPath)
+    If BaseFolder = "" Then BaseFolder = FolderPath
+
+    XlsxPath = BaseFolder & "\TongHopEmail.xlsx"
+    wb.SaveAs XlsxPath
+
+    MsgBox _
+        "Da hoan thanh!" & vbCrLf & vbCrLf & _
+        "So email: " & CountMail & vbCrLf & vbCrLf & _
+        "Excel:" & vbCrLf & XlsxPath, _
+        vbInformation, _
+        "Tong hop email"
+
+End Sub
+
+'==========================================================
+' KIEM TRA SUBJECT
+'==========================================================
+Function CoTieuDeHopLe(ByVal Subject As String) As Boolean
+
+    Dim sSubj As String
+    Dim sMarker As String
+
+    sSubj = Trim$(Subject)
+
+    If Len(sSubj) > 0 Then
+        If Left$(sSubj, 1) = "[" Then
+            sSubj = Mid$(sSubj, 2)
+        End If
+    End If
+
+    sMarker = TieuDeYeuCau()
+
+    CoTieuDeHopLe = (InStr(1, sSubj, sMarker, vbTextCompare) = 1)
+
+End Function
+
+'==========================================================
+' KHOI TAO SHEET: TIEU DE (dong 1) + HEADER (dong 2)
+' Cot: A STT | B Thoi gian | C Tieu de | D Noi dung |
+'      E Ban dich | F Thong tin lien lac | G Email | H Ghi chu
+'==========================================================
+Sub KhoiTaoSheet(ByVal ws As Object)
+
+    Dim sHeaderE As String
+
+    ' Cot E: neu dich sang zh-tw thi hien tieu de chu Han nhu mau
+    Select Case gLangTo
+        Case "zh-tw"
+            sHeaderE = CJK("53CD 6620 5167 5BB9 0020 002F 0020 5EFA 8B70")
+        Case "0", ""
+            sHeaderE = ""
+        Case Else
+            sHeaderE = VN("B", 7843, "n d", 7883, "ch / Translation") & vbLf & "(" & GetLanguageName(gLangTo) & ")"
+    End Select
+
+    With ws
+
+        .Cells.Font.Name = "Times New Roman"
+        .Cells.Font.Size = 11
+
+        .Columns("C:F").NumberFormat = "@"
+
+        ' --- Dong 1: tieu de lon ---
+        .Range("A1:H1").Merge
+        .Cells(1, 1).Value = VN("T", 7892, "NG H", 7906, "P ", 221, " KI", 7870, "N PH", 7842, "N ", 193, "N") & vbLf & _
+                             CJK("610F 898B 53CD 6620 FF0F 5EFA 8B70 5F59 7E3D")
+        With .Range("A1:H1")
+            .Font.Bold = True
+            .Font.Size = 14
+            .HorizontalAlignment = -4108
+            .VerticalAlignment = -4108
+            .WrapText = True
+        End With
+        .Rows(1).RowHeight = 48
+
+        ' --- Dong 2: header 2 ngon ngu ---
+        .Cells(2, 1).Value = "STT"
+        .Cells(2, 2).Value = VN("Th", 7901, "i gian") & vbLf & CJK("6642 9593")
+        .Cells(2, 3).Value = VN("Ti", 234, "u ", 273, 7873) & vbLf & CJK("6A19 984C")
+        .Cells(2, 4).Value = VN("N", 7897, "i dung ph", 7843, "n ", 225, "nh / G", 243, "p ", 253)
+        .Cells(2, 5).Value = sHeaderE
+        .Cells(2, 6).Value = NhanLienLac() & vbLf & CJK("806F 7D61 8CC7 8A0A")
+        .Cells(2, 7).Value = "Email" & vbLf & CJK("96FB 5B50 90F5 4EF6")
+        .Cells(2, 8).Value = VN("Ghi ch", 250) & vbLf & CJK("5099 8A3B")
+
+        With .Range("A2:H2")
+            .Font.Bold = True
+            .HorizontalAlignment = -4108
+            .VerticalAlignment = -4108
+            .WrapText = True
+            .Interior.Color = RGB(217, 225, 242)
+        End With
+        .Rows(2).RowHeight = 36
+
+    End With
+
+End Sub
+
+'==========================================================
+' DINH DANG COT / VIEN / AUTOFILTER (goi sau khi ghi du lieu)
+'==========================================================
+Sub DinhDangExcel(ByVal ws As Object, ByVal LastRow As Long)
+
+    If LastRow < 3 Then LastRow = 3
+
+    With ws
+
+        .Columns("A:A").ColumnWidth = 6
+        .Columns("B:B").ColumnWidth = 20
+        .Columns("C:C").ColumnWidth = 35
+        .Columns("D:D").ColumnWidth = 55
+        .Columns("E:E").ColumnWidth = 55
+        .Columns("F:F").ColumnWidth = 28
+        .Columns("G:G").ColumnWidth = 14
+        .Columns("H:H").ColumnWidth = 20
+
+        .Range("B3:B" & LastRow).NumberFormat = "dd/mm/yyyy hh:mm:ss"
+
+        With .Range("A3:H" & LastRow)
+            .VerticalAlignment = -4160        ' top
+            .WrapText = True
+        End With
+
+        .Range("A3:B" & LastRow).HorizontalAlignment = -4108
+        .Range("G3:G" & LastRow).HorizontalAlignment = -4108
+
+        ' Vien toan bang (tu tieu de den dong cuoi)
+        With .Range("A1:H" & LastRow).Borders
+            .LineStyle = 1
+            .Weight = 2
+        End With
+
+        .Rows("3:" & LastRow).AutoFit
+
+        ' Autofilter o dong header (dong 2)
+        If .AutoFilterMode Then .AutoFilterMode = False
+        .Range("A2:H" & LastRow).AutoFilter
+
+        ' Co dinh tieu de + header khi cuon
+        .Activate
+        .Range("A3").Select
+        .Application.ActiveWindow.FreezePanes = False
+        .Application.ActiveWindow.FreezePanes = True
+
+    End With
+
+End Sub
+
+'==========================================================
+' GHI 1 DONG THONG TIN EMAIL VAO EXCEL (+ DICH)
+'==========================================================
+Sub GhiDongEmail(ByVal Mail As Outlook.MailItem, ByVal ws As Object, ByVal Row As Long)
+
+    Dim sNoiDung As String
+
+    gStep = "doc Body / tach noi dung"
+    sNoiDung = LayNoiDungPhanAnh(CStr(Mail.Body))
+
+    gStep = "ghi STT, thoi gian, tieu de"
+    ws.Cells(Row, 1).Value = Row - 2
+    ws.Cells(Row, 2).Value = Mail.ReceivedTime
+    ws.Cells(Row, 3).Value = CStr(Mail.Subject)
+
+    gStep = "ghi noi dung (cot D)"
+    ws.Cells(Row, 4).Value = sNoiDung
+
+    If gLangTo <> "0" And gLangTo <> "" And Len(sNoiDung) > 0 Then
+        gStep = "dich bang Ollama (cot E)"
+        ws.Cells(Row, 5).Value = CStr(Dich(sNoiDung, gLangTo))
+    End If
+
+    gStep = "tach thong tin lien lac (cot F)"
+    ws.Cells(Row, 6).Value = LayThongTinLienLac(CStr(Mail.Body))
+
+End Sub
+
+'==========================================================
+' XU LY 1 EMAIL (ghi dong + luu .msg neu co file dinh kem)
+'==========================================================
+Sub ProcessMail( _
+    ByVal Mail As Outlook.MailItem, _
+    ByVal ws As Object, _
+    ByVal Row As Long, _
+    ByVal MsgFolder As String)
+
+    Dim SafeName As String
+    Dim MsgPath As String
+    Dim ErrNum As Long
+    Dim ErrDesc As String
+
+    GhiDongEmail Mail, ws, Row
+
+    If Mail.Attachments.Count = 0 Then Exit Sub
+
+    SafeName = CleanFileName( _
+        "H " & Format(Mail.ReceivedTime, "yyyymmdd_hhnnss") _
+        & "_" & Mail.Subject)
+
+    If Len(SafeName) > 150 Then SafeName = Left$(SafeName, 150)
+
+    MsgPath = MsgFolder & "\" & SafeName & ".msg"
+
+    On Error Resume Next
+    Err.Clear
+    Mail.SaveAs MsgPath, olMSG
+    ErrNum = Err.Number            ' luu lai truoc khi On Error GoTo 0 (lenh nay se xoa Err)
+    ErrDesc = Err.Description
+    On Error GoTo 0
+
+    If ErrNum <> 0 Then
+        ws.Cells(Row, 7).Value = VN("L", 7895, "i l", 432, "u: ") & ErrNum & " - " & ErrDesc
+    Else
+        ws.Hyperlinks.Add _
+            Anchor:=ws.Cells(Row, 7), _
+            Address:=MsgPath, _
+            TextToDisplay:=VN("M", 7903, " email")
+    End If
+
+End Sub
+
+'==========================================================
+' TIM VI TRI GAN NHAT TRONG SO NHIEU MOC KET THUC
+'==========================================================
+Function ViTriGanNhat(ByVal Body As String, ByVal FromPos As Long, ByRef BestPos As Long, ByVal sMarker As String, Optional ByVal Compare As VbCompareMethod = vbBinaryCompare) As Long
+
+    Dim p As Long
+    p = InStr(FromPos, Body, sMarker, Compare)
+
+    If p > 0 Then
+        If BestPos = 0 Or p < BestPos Then
+            BestPos = p
+        End If
+    End If
+
+    ViTriGanNhat = BestPos
+
+End Function
+
+'==========================================================
+' RUT GON NOI DUNG PHAN ANH / GOP Y TU BODY EMAIL
+'==========================================================
+Function LayNoiDungPhanAnh(ByVal Body As String) As String
+
+    Dim sMarker As String
+    sMarker = "N" & ChrW(7897) & "i dung ph" & ChrW(7843) & "n " & _
+              ChrW(225) & "nh / G" & ChrW(243) & "p " & ChrW(253) & ":"
+
+    Dim startPos As Long
+    Dim endPos As Long
+    Dim sResult As String
+
+    startPos = InStr(1, Body, sMarker, vbBinaryCompare)
+
+    If startPos = 0 Then
+        startPos = InStr(1, Body, sMarker, vbTextCompare)
+    End If
+
+    If startPos = 0 Then
+        LayNoiDungPhanAnh = Trim$(Body)
+        Exit Function
+    End If
+
+    startPos = startPos + Len(sMarker)
+
+    Dim sLienLac As String
+    sLienLac = NhanLienLac()
+
+    Dim sPhone As String
+    sPhone = ChrW(&HD83D) & ChrW(&HDCDE)        ' U+1F4DE
+
+    Dim sGlobe As String
+    sGlobe = ChrW(&HD83C) & ChrW(&HDF0F)        ' U+1F30F
+
+    Dim sWarn As String
+    sWarn = ChrW(&H26A0)
+
+    endPos = 0
+    ViTriGanNhat Body, startPos, endPos, sLienLac, vbTextCompare
+    ViTriGanNhat Body, startPos, endPos, sPhone, vbBinaryCompare
+    ViTriGanNhat Body, startPos, endPos, sGlobe, vbBinaryCompare
+    ViTriGanNhat Body, startPos, endPos, sWarn, vbBinaryCompare
+    ViTriGanNhat Body, startPos, endPos, vbCrLf & vbCrLf, vbBinaryCompare
+
+    If endPos = 0 Then endPos = Len(Body) + 1
+
+    sResult = Mid$(Body, startPos, endPos - startPos)
+
+    sResult = Replace(sResult, vbTab, " ")
+    sResult = Replace(sResult, vbCrLf, " ")
+    sResult = Replace(sResult, vbCr, " ")
+    sResult = Replace(sResult, vbLf, " ")
+
+    sResult = Replace(sResult, sPhone, "")
+    sResult = Replace(sResult, sGlobe, "")
+    sResult = Replace(sResult, sWarn, "")
+
+    Do While InStr(sResult, "  ") > 0
+        sResult = Replace(sResult, "  ", " ")
+    Loop
+
+    LayNoiDungPhanAnh = Trim$(sResult)
+
+End Function
+
+'==========================================================
+' RUT GON THONG TIN LIEN LAC TU BODY EMAIL
+'==========================================================
+Function LayThongTinLienLac(ByVal Body As String) As String
+
+    Dim sMarker As String
+    sMarker = NhanLienLac() & ":"
+
+    Dim startPos As Long
+    Dim endPos As Long
+    Dim sResult As String
+
+    startPos = InStr(1, Body, sMarker, vbTextCompare)
+
+    If startPos = 0 Then
+        LayThongTinLienLac = ""
+        Exit Function
+    End If
+
+    startPos = startPos + Len(sMarker)
+
+    Dim sGlobe As String
+    sGlobe = ChrW(&HD83C) & ChrW(&HDF0F)
+
+    Dim sWarn As String
+    sWarn = ChrW(&H26A0)
+
+    endPos = 0
+    ViTriGanNhat Body, startPos, endPos, sGlobe, vbBinaryCompare
+    ViTriGanNhat Body, startPos, endPos, sWarn, vbBinaryCompare
+    ViTriGanNhat Body, startPos, endPos, vbCrLf & vbCrLf, vbBinaryCompare
+
+    If endPos = 0 Then endPos = Len(Body) + 1
+
+    sResult = Mid$(Body, startPos, endPos - startPos)
+
+    sResult = Replace(sResult, vbTab, " ")
+    sResult = Replace(sResult, vbCrLf, " ")
+    sResult = Replace(sResult, vbCr, " ")
+    sResult = Replace(sResult, vbLf, " ")
+
+    Do While InStr(sResult, "  ") > 0
+        sResult = Replace(sResult, "  ", " ")
+    Loop
+
+    LayThongTinLienLac = Trim$(sResult)
+
+End Function
+
+'==========================================================
+' TACH DANH SACH EMAIL NGUOI GUI
+'==========================================================
+Function TachDanhSachEmail(ByVal sInput As String) As String()
+
+    Dim sTemp As String
+    Dim arr() As String
+    Dim k As Long
+
+    sTemp = Replace(sInput, ";", ",")
+    arr = Split(sTemp, ",")
+
+    For k = LBound(arr) To UBound(arr)
+        arr(k) = LCase(Trim$(arr(k)))
+    Next k
+
+    TachDanhSachEmail = arr
+
+End Function
+
+Function CoTrongDanhSach(ByVal Email As String, ByRef arrList() As String) As Boolean
+
+    Dim k As Long
+    Dim sEmail As String
+
+    sEmail = LCase(Trim$(Email))
+
+    For k = LBound(arrList) To UBound(arrList)
+        If arrList(k) <> "" And sEmail = arrList(k) Then
+            CoTrongDanhSach = True
+            Exit Function
+        End If
+    Next k
+
+    CoTrongDanhSach = False
+
+End Function
+
+'==========================================================
+' LAY EMAIL NGUOI GUI
+'==========================================================
+Function GetSenderEmail(ByVal Mail As Outlook.MailItem) As String
+
+    On Error Resume Next
+
+    Dim Sender As Outlook.AddressEntry
+    Dim ExUser As Outlook.ExchangeUser
+
+    If Mail.SenderEmailType = "EX" Then
+
+        Set Sender = Mail.Sender
+
+        If Not Sender Is Nothing Then
+
+            Set ExUser = Sender.GetExchangeUser
+
+            If Not ExUser Is Nothing Then
+                GetSenderEmail = ExUser.PrimarySmtpAddress
+            Else
+                GetSenderEmail = Mail.SenderEmailAddress
+            End If
+
+        Else
+            GetSenderEmail = Mail.SenderEmailAddress
+        End If
+
+    Else
+        GetSenderEmail = Mail.SenderEmailAddress
+    End If
+
+    On Error GoTo 0
+
+End Function
+
+'==========================================================
+' TAO FOLDER / XU LY TEN FILE
+'==========================================================
+Sub CreateFolderIfNotExist(ByVal FolderPath As String)
+
+    If Dir(FolderPath, vbDirectory) = "" Then
+        MkDir FolderPath
+    End If
+
+End Sub
+
+Function CleanFileName(ByVal FileName As String) As String
+
+    Dim BadChars As Variant
+    Dim c As Variant
+
+    BadChars = Array("\", "/", ":", "*", "?", """", "<", ">", "|")
+
+    For Each c In BadChars
+        FileName = Replace(FileName, CStr(c), "_")
+    Next c
+
+    FileName = Trim$(FileName)
+
+    If Len(FileName) = 0 Then FileName = "Email"
+
+    CleanFileName = FileName
+
+End Function
+
+
+'==========================================================
+'==========================================================
+'  PHAN DICH BANG OLLAMA (translategemma:12b)
+'==========================================================
+'==========================================================
+
+Function Dich(ByVal text As String, Optional ByVal langTo As String = "vi") As String
+
+    Dim http As Object
+    Dim url As String
+    Dim json As String
+    Dim prompt As String
+
+    If Len(Trim$(text)) = 0 Then
+        Dich = ""
+        Exit Function
+    End If
+
+    url = "http://192.168.40.189:11434/api/generate"
+
+    prompt = "Translate the following text to " & GetLanguageName(langTo) & _
+             ". Only return the translated text. Do not explain anything." & vbLf & _
+             vbLf & text
+
+    json = "{""model"":""translategemma:12b""," & _
+           """prompt"":""" & JsonEscape(prompt) & """," & _
+           """stream"":false}"
+
+    On Error GoTo ErrorHandler
+
+    Set http = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+    http.setTimeouts 5000, 5000, 30000, 180000     ' resolve, connect, send, receive (ms)
+
+    http.Open "POST", url, False
+    http.setRequestHeader "Content-Type", "application/json; charset=utf-8"
+    http.Send StringToUtf8(json)
+
+    If http.Status <> 200 Then
+        Dich = "[Loi Ollama: HTTP " & http.Status & "]"
+        Exit Function
+    End If
+
+    Dich = Trim$(GetJsonValue(Utf8ToString(http.responseBody), "response"))
+
+    Exit Function
+
+ErrorHandler:
+    Dich = "[Loi: " & Err.Description & "]"
+End Function
+
+'----------------------------------------------------------
+' Ma ngon ngu -> ten ngon ngu
+'----------------------------------------------------------
+Function GetLanguageName(ByVal lang As String) As String
+
+    Select Case LCase(lang)
+        Case "vi":    GetLanguageName = "Vietnamese"
+        Case "en":    GetLanguageName = "English"
+        Case "zh":    GetLanguageName = "Simplified Chinese"
+        Case "zh-tw": GetLanguageName = "Traditional Chinese"
+        Case "ja":    GetLanguageName = "Japanese"
+        Case "ko":    GetLanguageName = "Korean"
+        Case "de":    GetLanguageName = "German"
+        Case "fr":    GetLanguageName = "French"
+        Case Else:    GetLanguageName = lang
+    End Select
+
+End Function
+
+'----------------------------------------------------------
+' Escape chuoi de dua vao JSON
+'----------------------------------------------------------
+Function JsonEscape(ByVal s As String) As String
+
+    s = Replace(s, "\", "\\")
+    s = Replace(s, """", "\""")
+    s = Replace(s, vbCrLf, "\n")
+    s = Replace(s, vbCr, "\n")
+    s = Replace(s, vbLf, "\n")
+    s = Replace(s, vbTab, "\t")
+
+    JsonEscape = s
+
+End Function
+
+'----------------------------------------------------------
+' Lay gia tri chuoi cua key trong JSON (giai ma \n \" \\ \uXXXX)
+'----------------------------------------------------------
+Function GetJsonValue(ByVal json As String, ByVal key As String) As String
+
+    Dim p As Long
+    Dim ch As String
+    Dim nx As String
+    Dim sb As String
+
+    p = InStr(json, """" & key & """:""")
+    If p = 0 Then
+        GetJsonValue = ""
+        Exit Function
+    End If
+
+    p = p + Len(key) + 4
+
+    Do While p <= Len(json)
+
+        ch = Mid$(json, p, 1)
+
+        If ch = """" Then Exit Do
+
+        If ch = "\" Then
+            p = p + 1
+            nx = Mid$(json, p, 1)
+            Select Case nx
+                Case "n": sb = sb & vbCrLf
+                Case "r": ' bo qua
+                Case "t": sb = sb & vbTab
+                Case "b", "f": ' bo qua
+                Case "u"
+                    sb = sb & UniChr(HexToLong(Mid$(json, p + 1, 4)))
+                    p = p + 4
+                Case Else: sb = sb & nx          ' \" \\ \/
+            End Select
+        Else
+            sb = sb & ch
+        End If
+
+        p = p + 1
+
+    Loop
+
+    GetJsonValue = sb
+
+End Function
+
+'----------------------------------------------------------
+' Chuyen chuoi <-> mang byte UTF-8 (tranh loi font tieng Viet/Hoa)
+'----------------------------------------------------------
+Function StringToUtf8(ByVal s As String) As Variant
+
+    Dim st As Object
+    Set st = CreateObject("ADODB.Stream")
+
+    st.Type = 2                 ' text
+    st.Charset = "utf-8"
+    st.Open
+    st.WriteText s
+    st.Position = 0
+    st.Type = 1                 ' binary
+    st.Position = 3             ' bo BOM
+    StringToUtf8 = st.Read
+    st.Close
+
+End Function
+
+Function Utf8ToString(ByVal b As Variant) As String
+
+    Dim st As Object
+    Set st = CreateObject("ADODB.Stream")
+
+    st.Type = 1                 ' binary
+    st.Open
+    st.Write b
+    st.Position = 0
+    st.Type = 2                 ' text
+    st.Charset = "utf-8"
+    Utf8ToString = st.ReadText
+    st.Close
+
+End Function
