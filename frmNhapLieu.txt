@@ -1,8 +1,7 @@
 'Trong VBA Editor, chọn Insert → UserForm.
-'Nhấn F4, đổi dòng (Name) thành frmNhapLieu (đúng chính tả, phân biệt hoa thường).
+'Nhấn F4, đổi dòng (Name) thành frmNhapLieu1 (đúng chính tả, phân biệt hoa thường).
 'Nhấn F7 để mở cửa sổ code của form, xóa hết nội dung có sẵn.
 'Dán toàn bộ đoạn sau vào:
-
 Option Explicit
 
 Public SenderText As String
@@ -31,7 +30,7 @@ Private Function AddText(ByVal sName As String, ByVal sValue As String, _
                          ByVal L As Single, ByVal T As Single, ByVal W As Single) As MSForms.TextBox
     Dim tb As MSForms.TextBox
     Set tb = Me.Controls.Add("Forms.TextBox.1", sName, True)
-    tb.Text = sValue
+    tb.text = sValue
     tb.Left = L: tb.Top = T: tb.Width = W: tb.Height = 20
     Set AddText = tb
 End Function
@@ -39,6 +38,9 @@ End Function
 Public Sub Setup(ByVal bFull As Boolean)
 
     Dim y As Single
+    Dim sToday As String
+
+    sToday = Format(Date, "dd") & "/" & Format(Date, "mm") & "/" & Format(Date, "yyyy")
 
     mFull = bFull
     mCodes = Array("zh-tw", "zh", "en", "vi", "ja", "ko", "de", "fr", "0")
@@ -57,8 +59,8 @@ Public Sub Setup(ByVal bFull As Boolean)
         AddLabel "lblFrom", "Tu ngay (dd/mm/yyyy)", 12, y, 120
         AddLabel "lblTo", "Den ngay (dd/mm/yyyy)", 147, y, 120
         y = y + 16
-        Set txtFrom = AddText("txtFrom", Format(Date, "dd/mm/yyyy"), 12, y, 120)
-        Set txtTo = AddText("txtTo", Format(Date, "dd/mm/yyyy"), 147, y, 120)
+        Set txtFrom = AddText("txtFrom", sToday, 12, y, 120)
+        Set txtTo = AddText("txtTo", sToday, 147, y, 120)
         y = y + 28
     End If
 
@@ -100,37 +102,63 @@ Public Sub Setup(ByVal bFull As Boolean)
 
 End Sub
 
+Private Function ParseDMY(ByVal s As String, ByRef d As Date) As Boolean
+
+    Dim p() As String
+    Dim dd As Long, mm As Long, yy As Long
+
+    s = Replace(Replace(Trim$(s), "-", "/"), ".", "/")
+    p = Split(s, "/")
+
+    If UBound(p) <> 2 Then Exit Function
+    If Not (IsNumeric(p(0)) And IsNumeric(p(1)) And IsNumeric(p(2))) Then Exit Function
+
+    dd = CLng(p(0))
+    mm = CLng(p(1))
+    yy = CLng(p(2))
+
+    If yy < 100 Then yy = yy + 2000
+    If mm < 1 Or mm > 12 Or dd < 1 Or dd > 31 Then Exit Function
+
+    d = DateSerial(yy, mm, dd)
+    ParseDMY = (Day(d) = dd And Month(d) = mm)
+
+End Function
+
 Private Sub btnOK_Click()
+
+    Dim dFrom As Date
+    Dim dTo As Date
 
     If mFull Then
 
-        If Len(Trim$(txtSender.Text)) = 0 Then
+        If Len(Trim$(txtSender.text)) = 0 Then
             MsgBox "Chua nhap email nguoi gui.", vbExclamation
             txtSender.SetFocus
             Exit Sub
         End If
 
-        If Not IsDate(txtFrom.Text) Then
+        If Not ParseDMY(txtFrom.text, dFrom) Then
             MsgBox "Ngay bat dau khong hop le.", vbExclamation
             txtFrom.SetFocus
             Exit Sub
         End If
 
-        If Not IsDate(txtTo.Text) Then
+        If Not ParseDMY(txtTo.text, dTo) Then
             MsgBox "Ngay ket thuc khong hop le.", vbExclamation
             txtTo.SetFocus
             Exit Sub
         End If
 
-        If CDate(txtFrom.Text) > CDate(txtTo.Text) Then
+        If dFrom > dTo Then
             MsgBox "Ngay bat dau khong duoc lon hon ngay ket thuc.", vbExclamation
             txtFrom.SetFocus
             Exit Sub
         End If
 
-        SenderText = Trim$(txtSender.Text)
-        FromValue = CDate(txtFrom.Text)
-        ToValue = CDate(txtTo.Text)
+        SenderText = Trim$(txtSender.text)
+        FromValue = dFrom
+        ToValue = dTo
 
     End If
 
@@ -154,3 +182,4 @@ Private Sub UserForm_QueryClose(Cancel As Integer, CloseMode As Integer)
         Me.Hide
     End If
 End Sub
+
