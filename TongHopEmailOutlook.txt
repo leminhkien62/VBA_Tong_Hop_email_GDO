@@ -46,7 +46,7 @@ Function CJK(ByVal HexList As String) As String
 End Function
 
 '----------------------------------------------------------
-' Doi chuoi hex -> Long (khong dung CLng("&H..") de tranh Type mismatch)
+' Doi chuoi hex -> Long
 '----------------------------------------------------------
 Function HexToLong(ByVal h As String) As Long
 
@@ -86,7 +86,7 @@ Function NhanLienLac() As String
 End Function
 
 '==========================================================
-' HIEN FORM NHAP LIEU (frmNhapLieu): email, ngay, ngon ngu
+' HIEN FORM NHAP LIEU (frmNhapLieu1): email, ngay, ngon ngu
 ' bFull = True : hien du email + tu ngay + den ngay + ngon ngu
 ' bFull = False: chi hien ngon ngu dich
 ' Tra ve False neu bam Huy
@@ -97,7 +97,7 @@ Function HienForm(ByVal bFull As Boolean, ByRef sSender As String, _
     Dim f As Object
 
     On Error GoTo NoForm
-    Set f = VBA.UserForms.Add("frmNhapLieu")
+    Set f = VBA.UserForms.Add("frmNhapLieu1")
     On Error GoTo 0
 
     f.Setup bFull
@@ -117,13 +117,13 @@ Function HienForm(ByVal bFull As Boolean, ByRef sSender As String, _
     Exit Function
 
 NoForm:
-    MsgBox "Chua co form frmNhapLieu." & vbCrLf & _
-           "Vao File > Import File..., chon frmNhapLieu.frm", vbExclamation
+    MsgBox "Chua co form frmNhapLieu1." & vbCrLf & _
+           "Vao File > Import File..., chon frmNhapLieu1.frm", vbExclamation
 
 End Function
 
 '==========================================================
-' MACRO 1: QUET INBOX + THU MUC CON, XUAT EXCEL + .MSG
+' MAIN: quet de quy Inbox + tat ca thu muc con
 '==========================================================
 Sub TongHopEmailOutlook()
 
@@ -146,25 +146,21 @@ Sub TongHopEmailOutlook()
     Dim MsgFolder As String
     Dim XlsxPath As String
 
-    ' Form nhap lieu: email, tu ngay, den ngay, ngon ngu dich
     If Not HienForm(True, SenderInput, FromDate, ToDate, gLangTo) Then Exit Sub
 
     arrSenders = TachDanhSachEmail(SenderInput)
 
     On Error GoTo ErrorHandler
 
-    ' Tao thu muc
     BaseFolder = Environ$("USERPROFILE") & "\Desktop\" & "H " & Format(Now, "yyyy-mm-dd_HH-mm") & "_TongHopEmail"
     MsgFolder = BaseFolder & "\H Email"
 
     CreateFolderIfNotExist BaseFolder
     CreateFolderIfNotExist MsgFolder
 
-    ' Outlook
     Set olNs = Application.GetNamespace("MAPI")
     Set Inbox = olNs.GetDefaultFolder(olFolderInbox)
 
-    ' Excel
     Set xlApp = CreateObject("Excel.Application")
     xlApp.Visible = True
 
@@ -235,7 +231,29 @@ Sub XuLyThuMucDeQuy( _
 
     For i = 1 To Items.Count
 
-        XuLyMotItem Items(i), arrSenders, FromDate, ToDate, ws, Row, CountMail, MsgFolder
+        gStep = "quet thu muc / doc email"
+
+        If TypeName(Items(i)) = "MailItem" Then
+
+            Set Mail = Items(i)
+
+            If Mail.ReceivedTime >= FromDate _
+               And Mail.ReceivedTime < DateAdd("d", 1, ToDate) Then
+
+                If CoTrongDanhSach(GetSenderEmail(Mail), arrSenders) _
+                   And CoTieuDeHopLe(Mail.Subject) Then
+
+                    CountMail = CountMail + 1
+
+                    ProcessMail Mail, ws, Row, MsgFolder
+
+                    Row = Row + 1
+
+                End If
+
+            End If
+
+        End If
 
         If i Mod 100 = 0 Then DoEvents
 
@@ -244,57 +262,6 @@ Sub XuLyThuMucDeQuy( _
     For Each SubFld In Fld.Folders
         XuLyThuMucDeQuy SubFld, arrSenders, FromDate, ToDate, ws, Row, CountMail, MsgFolder
     Next SubFld
-
-End Sub
-
-'==========================================================
-' XU LY 1 ITEM: loi o email nao thi ghi vao cot H va chay tiep
-'==========================================================
-Sub XuLyMotItem( _
-    ByVal Obj As Object, _
-    ByRef arrSenders() As String, _
-    ByVal FromDate As Date, _
-    ByVal ToDate As Date, _
-    ByVal ws As Object, _
-    ByRef Row As Long, _
-    ByRef CountMail As Long, _
-    ByVal MsgFolder As String)
-
-    Dim Mail As Outlook.MailItem
-    Dim bMatch As Boolean
-
-    On Error GoTo EH
-
-    gStep = "kiem tra loai item"
-    If TypeName(Obj) <> "MailItem" Then Exit Sub
-    Set Mail = Obj
-
-    gStep = "doc ReceivedTime"
-    If Mail.ReceivedTime < FromDate Then Exit Sub
-    If Mail.ReceivedTime >= DateAdd("d", 1, ToDate) Then Exit Sub
-
-    gStep = "kiem tra nguoi gui"
-    If Not CoTrongDanhSach(GetSenderEmail(Mail), arrSenders) Then Exit Sub
-
-    gStep = "kiem tra tieu de"
-    If Not CoTieuDeHopLe(CStr(Mail.Subject)) Then Exit Sub
-
-    bMatch = True
-    CountMail = CountMail + 1
-
-    ProcessMail Mail, ws, Row, MsgFolder
-
-    Row = Row + 1
-    Exit Sub
-
-EH:
-    If bMatch Then
-        Dim sErr As String
-        sErr = "Loi [" & gStep & "]: " & Err.Number & " - " & Err.Description
-        On Error Resume Next
-        ws.Cells(Row, 8).Value = sErr
-        Row = Row + 1
-    End If
 
 End Sub
 
@@ -379,7 +346,7 @@ Sub TongHopExcelTuFileMsg()
 
                     If Mail.Attachments.Count > 0 Then
                         ws.Hyperlinks.Add _
-                            Anchor:=ws.Cells(Row, 7), _
+                            Anchor:=ws.Cells(Row, 6), _
                             Address:=FileItem.Path, _
                             TextToDisplay:=VN("M", 7903, " email")
                     End If
@@ -424,7 +391,7 @@ Function CoTieuDeHopLe(ByVal Subject As String) As Boolean
     Dim sSubj As String
     Dim sMarker As String
 
-    sSubj = Trim$(Subject)
+    sSubj = ChuanHoa(Subject)
 
     If Len(sSubj) > 0 Then
         If Left$(sSubj, 1) = "[" Then
@@ -440,21 +407,20 @@ End Function
 
 '==========================================================
 ' KHOI TAO SHEET: TIEU DE (dong 1) + HEADER (dong 2)
-' Cot: A STT | B Thoi gian | C Tieu de | D Noi dung |
-'      E Ban dich | F Thong tin lien lac | G Email | H Ghi chu
+' Cot: A STT | B Thoi gian | C Noi dung | D Ban dich |
+'      E Thong tin lien lac | F Email | G Ghi chu
 '==========================================================
 Sub KhoiTaoSheet(ByVal ws As Object)
 
-    Dim sHeaderE As String
+    Dim sHeaderD As String
 
-    ' Cot E: neu dich sang zh-tw thi hien tieu de chu Han nhu mau
     Select Case gLangTo
         Case "zh-tw"
-            sHeaderE = CJK("53CD 6620 5167 5BB9 0020 002F 0020 5EFA 8B70")
+            sHeaderD = CJK("53CD 6620 5167 5BB9 0020 002F 0020 5EFA 8B70")
         Case "0", ""
-            sHeaderE = ""
+            sHeaderD = ""
         Case Else
-            sHeaderE = VN("B", 7843, "n d", 7883, "ch / Translation") & vbLf & "(" & GetLanguageName(gLangTo) & ")"
+            sHeaderD = VN("B", 7843, "n d", 7883, "ch / Translation") & vbLf & "(" & GetLanguageName(gLangTo) & ")"
     End Select
 
     With ws
@@ -462,13 +428,13 @@ Sub KhoiTaoSheet(ByVal ws As Object)
         .Cells.Font.Name = "Times New Roman"
         .Cells.Font.Size = 11
 
-        .Columns("C:F").NumberFormat = "@"
+        .Columns("C:E").NumberFormat = "@"
 
         ' --- Dong 1: tieu de lon ---
-        .Range("A1:H1").Merge
+        .Range("A1:G1").Merge
         .Cells(1, 1).Value = VN("T", 7892, "NG H", 7906, "P ", 221, " KI", 7870, "N PH", 7842, "N ", 193, "N") & vbLf & _
                              CJK("610F 898B 53CD 6620 FF0F 5EFA 8B70 5F59 7E3D")
-        With .Range("A1:H1")
+        With .Range("A1:G1")
             .Font.Bold = True
             .Font.Size = 14
             .HorizontalAlignment = -4108
@@ -480,14 +446,13 @@ Sub KhoiTaoSheet(ByVal ws As Object)
         ' --- Dong 2: header 2 ngon ngu ---
         .Cells(2, 1).Value = "STT"
         .Cells(2, 2).Value = VN("Th", 7901, "i gian") & vbLf & CJK("6642 9593")
-        .Cells(2, 3).Value = VN("Ti", 234, "u ", 273, 7873) & vbLf & CJK("6A19 984C")
-        .Cells(2, 4).Value = VN("N", 7897, "i dung ph", 7843, "n ", 225, "nh / G", 243, "p ", 253)
-        .Cells(2, 5).Value = sHeaderE
-        .Cells(2, 6).Value = NhanLienLac() & vbLf & CJK("806F 7D61 8CC7 8A0A")
-        .Cells(2, 7).Value = "Email" & vbLf & CJK("96FB 5B50 90F5 4EF6")
-        .Cells(2, 8).Value = VN("Ghi ch", 250) & vbLf & CJK("5099 8A3B")
+        .Cells(2, 3).Value = VN("N", 7897, "i dung ph", 7843, "n ", 225, "nh / G", 243, "p ", 253)
+        .Cells(2, 4).Value = sHeaderD
+        .Cells(2, 5).Value = NhanLienLac() & vbLf & CJK("806F 7D61 8CC7 8A0A")
+        .Cells(2, 6).Value = "Email" & vbLf & CJK("96FB 5B50 90F5 4EF6")
+        .Cells(2, 7).Value = VN("Ghi ch", 250) & vbLf & CJK("5099 8A3B")
 
-        With .Range("A2:H2")
+        With .Range("A2:G2")
             .Font.Bold = True
             .HorizontalAlignment = -4108
             .VerticalAlignment = -4108
@@ -501,7 +466,7 @@ Sub KhoiTaoSheet(ByVal ws As Object)
 End Sub
 
 '==========================================================
-' DINH DANG COT / VIEN / AUTOFILTER (goi sau khi ghi du lieu)
+' DINH DANG COT / VIEN / AUTOFILTER / ZOOM 80
 '==========================================================
 Sub DinhDangExcel(ByVal ws As Object, ByVal LastRow As Long)
 
@@ -511,37 +476,34 @@ Sub DinhDangExcel(ByVal ws As Object, ByVal LastRow As Long)
 
         .Columns("A:A").ColumnWidth = 6
         .Columns("B:B").ColumnWidth = 20
-        .Columns("C:C").ColumnWidth = 35
+        .Columns("C:C").ColumnWidth = 55
         .Columns("D:D").ColumnWidth = 55
-        .Columns("E:E").ColumnWidth = 55
-        .Columns("F:F").ColumnWidth = 28
-        .Columns("G:G").ColumnWidth = 14
-        .Columns("H:H").ColumnWidth = 20
+        .Columns("E:E").ColumnWidth = 28
+        .Columns("F:F").ColumnWidth = 14
+        .Columns("G:G").ColumnWidth = 20
 
         .Range("B3:B" & LastRow).NumberFormat = "dd/mm/yyyy hh:mm:ss"
 
-        With .Range("A3:H" & LastRow)
+        With .Range("A3:G" & LastRow)
             .VerticalAlignment = -4160        ' top
             .WrapText = True
         End With
 
         .Range("A3:B" & LastRow).HorizontalAlignment = -4108
-        .Range("G3:G" & LastRow).HorizontalAlignment = -4108
+        .Range("F3:F" & LastRow).HorizontalAlignment = -4108
 
-        ' Vien toan bang (tu tieu de den dong cuoi)
-        With .Range("A1:H" & LastRow).Borders
+        With .Range("A1:G" & LastRow).Borders
             .LineStyle = 1
             .Weight = 2
         End With
 
         .Rows("3:" & LastRow).AutoFit
 
-        ' Autofilter o dong header (dong 2)
         If .AutoFilterMode Then .AutoFilterMode = False
-        .Range("A2:H" & LastRow).AutoFilter
+        .Range("A2:G" & LastRow).AutoFilter
 
-        ' Co dinh tieu de + header khi cuon
         .Activate
+        .Application.ActiveWindow.Zoom = 80
         .Range("A3").Select
         .Application.ActiveWindow.FreezePanes = False
         .Application.ActiveWindow.FreezePanes = True
@@ -555,26 +517,27 @@ End Sub
 '==========================================================
 Sub GhiDongEmail(ByVal Mail As Outlook.MailItem, ByVal ws As Object, ByVal Row As Long)
 
+    Dim sBody As String
     Dim sNoiDung As String
 
     gStep = "doc Body / tach noi dung"
-    sNoiDung = LayNoiDungPhanAnh(CStr(Mail.Body))
+    sBody = LayBody(Mail)
+    sNoiDung = LayNoiDungPhanAnh(sBody)
 
-    gStep = "ghi STT, thoi gian, tieu de"
+    gStep = "ghi STT, thoi gian"
     ws.Cells(Row, 1).Value = Row - 2
     ws.Cells(Row, 2).Value = Mail.ReceivedTime
-    ws.Cells(Row, 3).Value = CStr(Mail.Subject)
 
-    gStep = "ghi noi dung (cot D)"
-    ws.Cells(Row, 4).Value = sNoiDung
+    gStep = "ghi noi dung (cot C)"
+    ws.Cells(Row, 3).Value = sNoiDung
 
     If gLangTo <> "0" And gLangTo <> "" And Len(sNoiDung) > 0 Then
-        gStep = "dich bang Ollama (cot E)"
-        ws.Cells(Row, 5).Value = CStr(Dich(sNoiDung, gLangTo))
+        gStep = "dich bang Ollama (cot D)"
+        ws.Cells(Row, 4).Value = CStr(Dich(sNoiDung, gLangTo))
     End If
 
-    gStep = "tach thong tin lien lac (cot F)"
-    ws.Cells(Row, 6).Value = LayThongTinLienLac(CStr(Mail.Body))
+    gStep = "tach thong tin lien lac (cot E)"
+    ws.Cells(Row, 5).Value = LayThongTinLienLac(sBody)
 
 End Sub
 
@@ -607,20 +570,67 @@ Sub ProcessMail( _
     On Error Resume Next
     Err.Clear
     Mail.SaveAs MsgPath, olMSG
-    ErrNum = Err.Number            ' luu lai truoc khi On Error GoTo 0 (lenh nay se xoa Err)
+    ErrNum = Err.Number
     ErrDesc = Err.Description
     On Error GoTo 0
 
     If ErrNum <> 0 Then
-        ws.Cells(Row, 7).Value = VN("L", 7895, "i l", 432, "u: ") & ErrNum & " - " & ErrDesc
+        ws.Cells(Row, 6).Value = VN("L", 7895, "i l", 432, "u: ") & ErrNum & " - " & ErrDesc
     Else
         ws.Hyperlinks.Add _
-            Anchor:=ws.Cells(Row, 7), _
+            Anchor:=ws.Cells(Row, 6), _
             Address:=MsgPath, _
             TextToDisplay:=VN("M", 7903, " email")
     End If
 
 End Sub
+
+'==========================================================
+' LAY BODY: neu Body rong thi lay tu HTMLBody (bo the HTML)
+'==========================================================
+Function LayBody(ByVal Mail As Outlook.MailItem) As String
+
+    Dim s As String
+    Dim p1 As Long
+    Dim p2 As Long
+
+    On Error Resume Next
+    s = CStr(Mail.Body)
+    On Error GoTo 0
+
+    If Len(Trim$(s)) > 0 Then
+        LayBody = s
+        Exit Function
+    End If
+
+    On Error Resume Next
+    s = CStr(Mail.HTMLBody)
+    On Error GoTo 0
+
+    s = Replace(s, "</td>", " ", , , vbTextCompare)
+    s = Replace(s, "</tr>", " ", , , vbTextCompare)
+    s = Replace(s, "<br>", " ", , , vbTextCompare)
+    s = Replace(s, "<br/>", " ", , , vbTextCompare)
+    s = Replace(s, "<br />", " ", , , vbTextCompare)
+    s = Replace(s, "</p>", " ", , , vbTextCompare)
+
+    Do
+        p1 = InStr(1, s, "<", vbBinaryCompare)
+        If p1 = 0 Then Exit Do
+        p2 = InStr(p1, s, ">", vbBinaryCompare)
+        If p2 = 0 Then Exit Do
+        s = Left$(s, p1 - 1) & " " & Mid$(s, p2 + 1)
+    Loop
+
+    s = Replace(s, "&nbsp;", " ")
+    s = Replace(s, "&amp;", "&")
+    s = Replace(s, "&lt;", "<")
+    s = Replace(s, "&gt;", ">")
+    s = Replace(s, "&quot;", """")
+
+    LayBody = s
+
+End Function
 
 '==========================================================
 ' TIM VI TRI GAN NHAT TRONG SO NHIEU MOC KET THUC
@@ -641,41 +651,59 @@ Function ViTriGanNhat(ByVal Body As String, ByVal FromPos As Long, ByRef BestPos
 End Function
 
 '==========================================================
+' CHUAN HOA CHUOI: NBSP, xuong dong, tab -> 1 dau cach
+'==========================================================
+Function ChuanHoa(ByVal s As String) As String
+
+    s = Replace(s, ChrW(160), " ")      ' NBSP
+    s = Replace(s, ChrW(8203), "")      ' zero-width space
+    s = Replace(s, ChrW(&HFE0F), "")    ' emoji variation selector
+    s = Replace(s, vbTab, " ")
+    s = Replace(s, vbCrLf, " ")
+    s = Replace(s, vbCr, " ")
+    s = Replace(s, vbLf, " ")
+
+    Do While InStr(s, "  ") > 0
+        s = Replace(s, "  ", " ")
+    Loop
+
+    ChuanHoa = Trim$(s)
+
+End Function
+
+'==========================================================
 ' RUT GON NOI DUNG PHAN ANH / GOP Y TU BODY EMAIL
 '==========================================================
 Function LayNoiDungPhanAnh(ByVal Body As String) As String
 
-    Dim sMarker As String
-    sMarker = "N" & ChrW(7897) & "i dung ph" & ChrW(7843) & "n " & _
-              ChrW(225) & "nh / G" & ChrW(243) & "p " & ChrW(253) & ":"
-
-    Dim startPos As Long
-    Dim endPos As Long
+    Dim sMarker As String, sShort As String, sLienLac As String
+    Dim sPhone As String, sGlobe As String, sWarn As String
+    Dim startPos As Long, endPos As Long, mLen As Long
     Dim sResult As String
 
-    startPos = InStr(1, Body, sMarker, vbBinaryCompare)
+    Body = ChuanHoa(Body)
+
+    sMarker = VN("N", 7897, "i dung ph", 7843, "n ", 225, "nh / G", 243, "p ", 253, ":")
+    sShort = VN("G", 243, "p ", 253, ":")          ' du phong: chi tim "Gop y:"
+
+    startPos = InStr(1, Body, sMarker, vbTextCompare)
+    mLen = Len(sMarker)
 
     If startPos = 0 Then
-        startPos = InStr(1, Body, sMarker, vbTextCompare)
+        startPos = InStr(1, Body, sShort, vbTextCompare)
+        mLen = Len(sShort)
     End If
 
     If startPos = 0 Then
-        LayNoiDungPhanAnh = Trim$(Body)
+        LayNoiDungPhanAnh = Body
         Exit Function
     End If
 
-    startPos = startPos + Len(sMarker)
+    startPos = startPos + mLen
 
-    Dim sLienLac As String
-    sLienLac = NhanLienLac()
-
-    Dim sPhone As String
+    sLienLac = NhanLienLac() & ":"
     sPhone = ChrW(&HD83D) & ChrW(&HDCDE)        ' U+1F4DE
-
-    Dim sGlobe As String
     sGlobe = ChrW(&HD83C) & ChrW(&HDF0F)        ' U+1F30F
-
-    Dim sWarn As String
     sWarn = ChrW(&H26A0)
 
     endPos = 0
@@ -683,24 +711,13 @@ Function LayNoiDungPhanAnh(ByVal Body As String) As String
     ViTriGanNhat Body, startPos, endPos, sPhone, vbBinaryCompare
     ViTriGanNhat Body, startPos, endPos, sGlobe, vbBinaryCompare
     ViTriGanNhat Body, startPos, endPos, sWarn, vbBinaryCompare
-    ViTriGanNhat Body, startPos, endPos, vbCrLf & vbCrLf, vbBinaryCompare
 
     If endPos = 0 Then endPos = Len(Body) + 1
 
     sResult = Mid$(Body, startPos, endPos - startPos)
-
-    sResult = Replace(sResult, vbTab, " ")
-    sResult = Replace(sResult, vbCrLf, " ")
-    sResult = Replace(sResult, vbCr, " ")
-    sResult = Replace(sResult, vbLf, " ")
-
     sResult = Replace(sResult, sPhone, "")
     sResult = Replace(sResult, sGlobe, "")
     sResult = Replace(sResult, sWarn, "")
-
-    Do While InStr(sResult, "  ") > 0
-        sResult = Replace(sResult, "  ", " ")
-    Loop
 
     LayNoiDungPhanAnh = Trim$(sResult)
 
@@ -712,11 +729,15 @@ End Function
 Function LayThongTinLienLac(ByVal Body As String) As String
 
     Dim sMarker As String
-    sMarker = NhanLienLac() & ":"
-
+    Dim sGlobe As String
+    Dim sWarn As String
     Dim startPos As Long
     Dim endPos As Long
     Dim sResult As String
+
+    Body = ChuanHoa(Body)
+
+    sMarker = NhanLienLac() & ":"
 
     startPos = InStr(1, Body, sMarker, vbTextCompare)
 
@@ -727,29 +748,16 @@ Function LayThongTinLienLac(ByVal Body As String) As String
 
     startPos = startPos + Len(sMarker)
 
-    Dim sGlobe As String
     sGlobe = ChrW(&HD83C) & ChrW(&HDF0F)
-
-    Dim sWarn As String
     sWarn = ChrW(&H26A0)
 
     endPos = 0
     ViTriGanNhat Body, startPos, endPos, sGlobe, vbBinaryCompare
     ViTriGanNhat Body, startPos, endPos, sWarn, vbBinaryCompare
-    ViTriGanNhat Body, startPos, endPos, vbCrLf & vbCrLf, vbBinaryCompare
 
     If endPos = 0 Then endPos = Len(Body) + 1
 
     sResult = Mid$(Body, startPos, endPos - startPos)
-
-    sResult = Replace(sResult, vbTab, " ")
-    sResult = Replace(sResult, vbCrLf, " ")
-    sResult = Replace(sResult, vbCr, " ")
-    sResult = Replace(sResult, vbLf, " ")
-
-    Do While InStr(sResult, "  ") > 0
-        sResult = Replace(sResult, "  ", " ")
-    Loop
 
     LayThongTinLienLac = Trim$(sResult)
 
@@ -859,13 +867,9 @@ Function CleanFileName(ByVal FileName As String) As String
 
 End Function
 
-
-'==========================================================
 '==========================================================
 '  PHAN DICH BANG OLLAMA (translategemma:12b)
 '==========================================================
-'==========================================================
-
 Function Dich(ByVal text As String, Optional ByVal langTo As String = "vi") As String
 
     Dim http As Object
@@ -995,7 +999,7 @@ Function GetJsonValue(ByVal json As String, ByVal key As String) As String
 End Function
 
 '----------------------------------------------------------
-' Chuyen chuoi <-> mang byte UTF-8 (tranh loi font tieng Viet/Hoa)
+' Chuyen chuoi <-> mang byte UTF-8
 '----------------------------------------------------------
 Function StringToUtf8(ByVal s As String) As Variant
 
@@ -1029,3 +1033,5 @@ Function Utf8ToString(ByVal b As Variant) As String
     st.Close
 
 End Function
+
+
